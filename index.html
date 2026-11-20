@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bourse de la Classe</title>
+<meta name="description" content="Simulation boursière pour la classe : vraies entreprises, annonces inventées, 3 manches de 15 minutes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+/* Écran du prof (#prof) : graphiques, classement, annonces en bas. Sans # : page des équipes avec le code de la partie. */
+:root{
+  --bg:#0c1116; --panel:#141b23; --panel2:#1a232d; --line:#26323f;
+  --fg:#e8edf2; --muted:#8a99aa; --up:#2ccf86; --down:#ff5d6c; --news:#ffb020;
+  --f-display:"Space Grotesk",system-ui,sans-serif; --f-body:"Inter",system-ui,sans-serif; --f-num:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+body.host{padding-bottom:calc(150px + env(safe-area-inset-bottom,0px))}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-weight:600}
+button:hover:not(:disabled){border-color:var(--muted)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--news);outline-offset:2px}
+input,select{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px 10px;min-width:0}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .down{color:var(--down)} .muted{color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.panel h2{font-family:var(--f-display);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:500}
+.empty{color:var(--muted);font-size:13px}
+.note{font-size:13px;color:var(--muted);margin:0}
+.go{background:var(--news);border-color:var(--news);color:#1a1200}
+.buy{background:rgba(44,207,134,.15);border-color:var(--up);color:var(--up)}
+.sell{background:rgba(255,93,108,.15);border-color:var(--down);color:var(--down)}
+.msg{min-height:18px;font-size:13px}
+.pill{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:3px 9px;border-radius:99px;border:1px solid var(--line)}
+.pill.run{color:var(--up);border-color:var(--up)} .pill.wait{color:var(--news);border-color:var(--news)} .pill.pause{color:var(--down);border-color:var(--down)}
+.seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.seg button.on{border-color:var(--news);color:var(--news);background:rgba(255,176,32,.12)}
+.form{display:flex;flex-direction:column;gap:10px}
+.form > label{font-size:12px;color:var(--muted);margin-bottom:-6px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sec{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+
+/* ---------- écran du prof ---------- */
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:10px}
+h1{font-family:var(--f-display);font-size:26px;margin:0;letter-spacing:-.01em}
+h1 span{color:var(--news)}
+.status{display:flex;gap:16px;color:var(--muted);font-size:13px;flex-wrap:wrap;align-items:center}
+.status b{color:var(--fg)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.controls .on{border-color:var(--news);color:var(--news)}
+.disc{margin:-4px 0 10px;font-size:12px}
+.tape{overflow:hidden;border-block:1px solid var(--line);margin-bottom:12px;white-space:nowrap}
+.tape-inner{display:inline-flex;gap:32px;padding:6px 0;animation:tape 40s linear infinite}
+@keyframes tape{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.tape-item{font-family:var(--f-num);font-size:14px}
+.tape-item b{margin-right:6px}
+.hostgrid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px}
+.big-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:6px}
+.big-head .sym{font-family:var(--f-display);font-size:30px;font-weight:700}
+.big-head .px{font-size:30px;font-weight:700;margin-left:auto}
+.big-head .ch{font-size:18px;font-weight:700}
+#bigChart{width:100%;height:300px;display:block}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;font-weight:400;display:block;width:100%}
+.card.sel{border-color:var(--news)}
+.card.hot{animation:hot 1.2s ease 3}
+@keyframes hot{50%{border-color:var(--news);background:#231d10}}
+.card .sym{font-family:var(--f-display);font-weight:700;font-size:17px}
+.card .px{font-size:18px;font-weight:700}
+.card canvas{width:100%;height:44px;display:block;margin-top:6px}
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.board{width:100%;border-collapse:collapse}
+.board td{padding:8px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.board tr:last-child td{border-bottom:0}
+.board .rk{font-family:var(--f-display);font-weight:700;color:var(--muted);width:26px}
+.board tr:first-child .rk{color:var(--news)}
+.board .tm{font-weight:600;overflow-wrap:anywhere}
+.board .mb{display:block;font-weight:400;font-size:12px;color:var(--muted)}
+.board .val{text-align:right;white-space:nowrap}
+.board .pc{text-align:right;width:74px}
+.board .del{padding:1px 7px;font-size:12px;margin-left:6px;color:var(--muted)}
+.movers{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.movers h3{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:500}
+.movers ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.movers li{display:flex;justify-content:space-between;gap:6px}
+.join{display:flex;flex-direction:column;gap:8px}
+.join .gcode{font-family:var(--f-num);font-size:44px;font-weight:700;letter-spacing:.15em;color:var(--news);line-height:1}
+.join code{font-family:var(--f-num);font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;word-break:break-all;user-select:all}
+.news-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:240px;overflow-y:auto}
+.news-list li{border-left:3px solid var(--news);padding:2px 0 2px 10px;font-size:13px;line-height:1.4}
+.news-list li.neg{border-color:var(--down)}
+.news-list time{color:var(--muted);font-family:var(--f-num);font-size:12px;margin-right:6px}
+.flash{position:fixed;left:0;right:0;bottom:0;z-index:5;border-top:3px solid var(--news);background:#17140c;
+  padding:14px max(20px,env(safe-area-inset-right,0px)) calc(14px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px 20px;align-items:center}
+.flash.neg{border-color:var(--down);background:#1c1013}
+.flash.wait{border-color:var(--up);background:#0f1a15}
+.flash .tag{font-family:var(--f-display);font-weight:700;font-size:13px;letter-spacing:.12em;text-transform:uppercase;background:var(--news);color:#1a1200;padding:7px 11px;border-radius:4px;white-space:nowrap}
+.flash.neg .tag{background:var(--down);color:#fff}
+.flash.wait .tag{background:var(--up);color:#00170c}
+.flash .txt{font-family:var(--f-display);font-size:clamp(17px,2.2vw,28px);font-weight:700;line-height:1.25;text-wrap:balance;min-width:0;overflow-wrap:anywhere}
+.flash .txt small{display:block;font-family:var(--f-body);font-weight:500;font-size:14px;color:var(--muted);margin-top:4px}
+.flash .txt .num{color:var(--news)}
+.flash .next{text-align:right;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.flash .next b{display:block;font-family:var(--f-num);font-size:26px;color:var(--fg);letter-spacing:0}
+.flash .next .go{font-size:20px;padding:12px 26px;text-transform:none;letter-spacing:0}
+.flash.pop{animation:pop .8s ease}
+@keyframes pop{0%{transform:translateY(12px);opacity:.4}100%{transform:none;opacity:1}}
+
+/* podium */
+.victory{position:fixed;inset:0;z-index:20;background:rgba(6,9,12,.94);display:flex;align-items:center;justify-content:center;padding:20px 16px;overflow-y:auto}
+.victory canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.vic-inner{position:relative;text-align:center;width:100%;max-width:900px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.vic-tag{font-family:var(--f-display);font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:#1a1200;background:var(--news);padding:8px 18px;font-size:clamp(16px,2vw,22px);animation:vin .6s ease both}
+.victory h2{font-family:var(--f-display);font-size:clamp(36px,7vw,84px);margin:0;line-height:1.05;text-wrap:balance;color:var(--news);overflow-wrap:anywhere;animation:vin .8s 2.4s ease both}
+.victory p{margin:0;color:var(--muted);font-size:clamp(14px,1.6vw,18px);animation:vin .8s 2.6s ease both}
+.podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;gap:10px;width:100%;margin-top:16px}
+.pod{display:flex;flex-direction:column;align-items:stretch;min-width:0}
+.pod .who{opacity:0;animation:vin .6s ease forwards;padding-bottom:8px}
+.pod .who b{display:block;font-family:var(--f-display);font-size:clamp(15px,2vw,24px);overflow-wrap:anywhere}
+.pod .who span{display:block;font-size:13px;color:var(--muted)}
+.pod .who .num{color:var(--fg);font-size:15px;margin-top:2px}
+.pod .block{transform-origin:bottom;transform:scaleY(0);animation:grow .9s cubic-bezier(.2,.9,.3,1.2) forwards;display:flex;align-items:flex-start;justify-content:center;
+  font-family:var(--f-display);font-weight:700;font-size:clamp(34px,5vw,64px);padding-top:10px;border:2px solid rgba(0,0,0,.25)}
+.pod.p1 .block{height:230px;background:var(--news);color:#1a1200}
+.pod.p2 .block{height:165px;background:#c9d2dc;color:#10161c}
+.pod.p3 .block{height:120px;background:#c9814a;color:#1c0f05}
+.pod.p3 .block{animation-delay:.4s}.pod.p2 .block{animation-delay:1.1s}.pod.p1 .block{animation-delay:1.8s}
+.pod.p3 .who{animation-delay:1.1s}.pod.p2 .who{animation-delay:1.8s}.pod.p1 .who{animation-delay:2.5s}
+.pod.p1 .who b{color:var(--news)}
+.pod.empty .block{background:var(--panel2);color:var(--muted)}
+#vicClose{margin-top:14px}
+@keyframes grow{to{transform:scaleY(1)}}
+@keyframes vin{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ---------- page des équipes ---------- */
+.pl{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.pl-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.pl-head h1{font-size:22px}
+.pl-head .who{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.banner{border:2px solid var(--news);border-radius:10px;padding:12px 14px;background:#17140c}
+.banner.neg{border-color:var(--down);background:#1c1013}
+.banner.wait{border-color:var(--up);background:#0f1a15}
+.banner .tag{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--news)}
+.banner.neg .tag{color:var(--down)} .banner.wait .tag{color:var(--up)}
+.banner p{margin:4px 0 0;font-family:var(--f-display);font-weight:700;font-size:17px;line-height:1.3}
+.code{margin:-4px 0 12px;font-size:14px}
+.code b{font-size:20px;color:var(--news);letter-spacing:.12em}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.stat .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.stat .v{font-size:20px;font-weight:700;margin-top:2px}
+.hold{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:13px}
+.hold span{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:3px 8px}
+.orders{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.orders li{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.slist{display:flex;flex-direction:column;gap:8px}
+.srow{display:grid;grid-template-columns:minmax(0,1.3fr) 90px minmax(0,1.6fr);gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+.srow.hot{border-color:var(--news)}
+.srow .sym{font-family:var(--f-display);font-weight:700;font-size:16px}
+.srow canvas{width:90px;height:34px;display:block}
+.srow .act{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.srow .act input{width:64px}
+.srow .act button{padding:7px 10px}
+.bigcode{font-family:var(--f-num);font-size:32px;letter-spacing:.3em;text-align:center}
+
+@media (max-width:1100px){.hostgrid{grid-template-columns:minmax(0,1fr)}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:620px){
+  .flash{grid-template-columns:minmax(0,1fr)}.flash .next{text-align:left}
+  body.host{padding-bottom:calc(230px + env(safe-area-inset-bottom,0px))}
+  #bigChart{height:220px}.big-head .px{margin-left:0}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .srow{grid-template-columns:minmax(0,1fr) 90px}.srow .act{grid-column:1/-1}.srow .act button{flex:1}
+  .pod.p1 .block{height:150px}.pod.p2 .block{height:110px}.pod.p3 .block{height:80px}
+}
+@media (prefers-reduced-motion:reduce){.tape-inner,.flash.pop,.card.hot{animation:none}.victory *{animation:none!important;opacity:1!important;transform:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= ÉCRAN DU PROF ================= -->
+<div id="hostView" hidden>
+  <header>
+    <h1>Bourse de la <span>Classe</span></h1>
+    <div class="status">
+      <span class="pill wait" id="hPill">Inscriptions</span>
+      <span>Manche <b class="num" id="manche">1 / 3</b></span>
+      <span>Temps restant <b class="num" id="clock">15:00</b></span>
+      <span>Indice Classe <b class="num" id="idx">1000</b></span>
+      <span>Annonces <b class="num" id="newsCount">0</b></span>
+    </div>
+    <div class="controls">
+      <button id="startBtn" class="go">Commencer</button>
+      <button id="speedBtn">Vitesse ×1</button>
+      <button id="newsBtn">Annonce maintenant</button>
+      <button id="fsBtn">Plein écran</button>
+      <button id="resetBtn">Recommencer</button>
+    </div>
+  </header>
+  <p class="note disc">Simulation pour la classe : vraies entreprises, mais les prix bougent pour le jeu et les annonces sont inventées. Ce n'est pas la vraie bourse.</p>
+
+  <div class="tape" aria-hidden="true"><div class="tape-inner" id="tape"></div></div>
+
+  <div class="hostgrid">
+    <div style="min-width:0">
+      <section class="panel">
+        <div class="big-head">
+          <span class="sym" id="bigSym"></span><span class="muted" id="bigName"></span>
+          <span class="px num" id="bigPx"></span><span class="ch num" id="bigCh"></span>
+        </div>
+        <canvas id="bigChart"></canvas>
+      </section>
+      <div class="cards" id="cards"></div>
+    </div>
+    <div class="side">
+      <section class="panel join">
+        <h2>Pour jouer</h2>
+        <p class="note">Allez sur ce site avec votre téléphone ou votre ordi :</p>
+        <code id="siteUrl"></code>
+        <p class="note">et entrez le code de la partie :</p>
+        <div class="gcode" id="gameCode">·····</div>
+        <p class="note" id="netState">Connexion au réseau…</p>
+        <button id="copyBtn" type="button">Copier le lien</button>
+        <button id="wipeBtn" type="button">Effacer toutes les équipes</button>
+      </section>
+      <section class="panel">
+        <h2>Classement des équipes</h2>
+        <table class="board"><tbody id="board"></tbody></table>
+      </section>
+      <section class="panel">
+        <h2>Palmarès du marché</h2>
+        <div class="movers" id="movers"></div>
+      </section>
+      <section class="panel">
+        <h2>Toutes les annonces</h2>
+        <ul class="news-list" id="newsList"></ul>
+      </section>
+    </div>
+  </div>
+
+  <div class="victory" id="victory" hidden>
+    <canvas id="confetti" aria-hidden="true"></canvas>
+    <div class="vic-inner">
+      <div class="vic-tag">Victoire</div>
+      <h2 id="vicName"></h2>
+      <p id="vicSub"></p>
+      <div class="podium" id="podium"></div>
+      <button type="button" id="vicClose">Fermer</button>
+    </div>
+  </div>
+
+  <section class="flash wait" id="flash" aria-live="polite">
+    <div class="tag" id="flashTag">Inscriptions</div>
+    <div class="txt" id="flashTxt">Préparation…</div>
+    <div class="next" id="flashRight"></div>
+  </section>
+</div>
+
+<!-- ================= PAGE DES ÉQUIPES ================= -->
+<div id="playerView" class="pl" hidden>
+  <div class="pl-head">
+    <h1>Bourse de la <span style="color:var(--news)">Classe</span></h1>
+    <div class="who" id="who"></div>
+  </div>
+  <div id="plBody"></div>
+</div>
+
+<script>
+(() => {
+const START_CASH = 100000, MANCHES = 3, ROUND = 15*60, MAXH = 420;
+const ROLE = location.hash === '#prof' ? 'host' : 'player';
+window.addEventListener('hashchange', () => location.reload());
+
+// Vraies entreprises cotées. Les prix de départ sont arrondis et les annonces sont INVENTÉES pour le jeu.
+const DEFS = [
+  {sym:'AAPL', name:'Apple', sector:'Technologie', price:230, vol:.004},
+  {sym:'TSLA', name:'Tesla', sector:'Autos électriques', price:250, vol:.007},
+  {sym:'BA',   name:'Boeing', sector:'Avions', price:170, vol:.005},
+  {sym:'MCD',  name:'McDonald\'s', sector:'Restaurants', price:290, vol:.003},
+  {sym:'NKE',  name:'Nike', sector:'Sport', price:75, vol:.004},
+  {sym:'NTDOY',name:'Nintendo', sector:'Jeux vidéo', price:15, vol:.006},
+  {sym:'AMZN', name:'Amazon', sector:'Commerce en ligne', price:200, vol:.005},
+  {sym:'DIS',  name:'Disney', sector:'Films et parcs', price:110, vol:.004},
+];
+const PAYS = ['l\'Australie','le Japon','le Brésil','le Canada','l\'Inde','l\'Égypte','la Norvège','le Mexique','la Corée du Sud','le Sénégal',
+  'l\'Allemagne','le Maroc','l\'Argentine','l\'Indonésie','le Nigeria','le Kenya','la France','l\'Italie','l\'Espagne','le Vietnam','les Philippines',
+  'l\'Afrique du Sud','le Chili','le Pérou','la Colombie','la Turquie','l\'Arabie saoudite','les Émirats arabes unis','la Suède','la Pologne',
+  'la Nouvelle-Zélande','la Thaïlande','Singapour','la Côte d\'Ivoire','le Ghana','l\'Irlande','les Pays-Bas','la Suisse','le Québec','la Chine'];
+const NEWS = {
+  AAPL:{pos:['Apple va ouvrir 25 nouveaux magasins en {p}. Les files d\'attente sont déjà énormes !','Le nouvel iPhone bat un record : 20 millions vendus la première semaine.','Apple signe un contrat pour équiper toutes les écoles de {p} en tablettes.','Apple présente des lunettes intelligentes. Les précommandes explosent !','Les ventes d\'Apple en {p} ont doublé cette année.'],
+        neg:['Une panne mondiale empêche les iPhone de se mettre à jour pendant une journée.','{p} demande à Apple de payer une grosse amende pour ses règles de l\'App Store.','Une pénurie de puces ralentit la fabrication des iPhone.']},
+  TSLA:{pos:['Tesla va construire une usine géante en {p}. Des milliers de voitures en plus !','{p} va interdire les voitures à essence en ville. Les commandes de Tesla grimpent.','Tesla présente une batterie qui se recharge en 5 minutes !','Les taxis autonomes de Tesla arrivent dans 10 villes de {p}.','Tesla livre plus de voitures que prévu ce trimestre.'],
+        neg:['Tesla rappelle 80 000 voitures pour une mise à jour de sécurité.','La nouvelle usine de Tesla en {p} est retardée d\'un an.','Les ventes de Tesla baissent face à la concurrence en {p}.']},
+  BA:  {pos:['Boeing a signé un énorme contrat avec {p} pour 60 nouveaux avions. Ils vont faire beaucoup plus d\'argent !','La compagnie aérienne nationale de {p} commande 40 avions Boeing.','Le nouvel avion de Boeing consomme 25 % moins de carburant. Tout le monde le veut.','Boeing livre ses avions plus vite que prévu.'],
+        neg:['Une grève dans les usines de Boeing arrête la production pendant deux semaines.','Boeing perd une grosse commande de {p} au profit d\'Airbus.','Les autorités demandent plus de tests avant de laisser voler le nouvel avion de Boeing.']},
+  MCD: {pos:['McDonald\'s va ouvrir 300 restaurants en {p} cette année.','Le nouveau menu de McDonald\'s en {p} est un succès incroyable.','McDonald\'s lance la livraison par drone. Les clients adorent !','Les ventes de McDonald\'s montent dans le monde entier ce trimestre.'],
+        neg:['Le prix du bœuf augmente beaucoup. McDonald\'s va gagner moins d\'argent.','McDonald\'s ferme 100 restaurants en {p} à cause de loyers trop chers.']},
+  NKE: {pos:['La plus grande star de soccer de {p} signe un contrat avec Nike !','Les nouvelles chaussures Nike sont en rupture de stock en 3 heures.','Nike devient l\'équipementier officiel de l\'équipe nationale de {p}.','Nike ouvre un magasin géant en {p}.'],
+        neg:['Les ventes de Nike baissent en {p}. Les jeunes préfèrent d\'autres marques.','Un problème dans les usines retarde les nouvelles collections de Nike.']},
+  NTDOY:{pos:['Le nouveau jeu Mario s\'est vendu à 10 millions de copies en un week-end !','Nintendo annonce un film Zelda. Les fans sont en folie.','La console de Nintendo est la plus vendue de l\'année en {p}.','Nintendo va ouvrir un parc d\'attractions en {p}.'],
+        neg:['Le grand jeu de Nintendo est repoussé d\'un an. Les joueurs sont déçus.','Des pirates ont attaqué le service en ligne de Nintendo pendant 2 jours.']},
+  AMZN:{pos:['Amazon va livrer en 1 heure partout en {p}.','Amazon ouvre 10 nouveaux centres de livraison en {p}.','Le Black Friday d\'Amazon bat tous les records de ventes !','Le service cloud d\'Amazon signe un contrat avec le gouvernement de {p}.'],
+        neg:['Une grève des livreurs ralentit Amazon en {p}.','{p} veut obliger Amazon à payer plus de taxes.']},
+  DIS: {pos:['Le nouveau film Disney fait 1 milliard de dollars au cinéma en 2 semaines !','Disney va construire un nouveau parc en {p}.','Disney+ gagne 15 millions d\'abonnés en un mois.','Le parc Disney en {p} bat son record de visiteurs.'],
+        neg:['Le dernier film de Disney est un échec au cinéma.','Une tempête oblige le parc Disney de Floride à fermer pendant une semaine.']},
+};
+const MARKET_NEWS = [
+  {pos:true,  syms:'ALL', text:'La banque centrale baisse les taux d\'intérêt. Presque toute la bourse monte !'},
+  {pos:true,  syms:'ALL', text:'Fin d\'une guerre commerciale entre {p} et {p2}. Les investisseurs sont contents.'},
+  {pos:true,  syms:['BA','DIS','MCD'], text:'Le tourisme explose en {p} : avions, parcs et restaurants sont pleins.'},
+  {pos:true,  syms:['AAPL','AMZN','NTDOY'], text:'{p} investit des milliards dans la technologie. Les actions tech montent.'},
+  {pos:true,  syms:['TSLA','BA'], text:'Le prix du pétrole chute. Bonne nouvelle pour Boeing et Tesla.'},
+  {pos:false, syms:'ALL', text:'Peur d\'une crise économique en {p}. La plupart des actions baissent.'},
+  {pos:false, syms:['AAPL','TSLA','NTDOY'], text:'Une pénurie mondiale de puces électroniques frappe les usines en {p}.'},
+  {pos:false, syms:['NKE','AMZN','MCD'], text:'Les familles de {p} dépensent moins : les magasins et restaurants vendent moins.'},
+];
+
+/* ---------- outils ---------- */
+const $ = id => document.getElementById(id);
+const rand = (a,b) => a + Math.random()*(b-a);
+const gauss = () => { let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
+const money = n => (+n||0).toLocaleString('fr-CA',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' $';
+const money0 = n => Math.round(+n||0).toLocaleString('fr-CA') + ' $';
+const pct = n => (n>=0?'+':'') + n.toFixed(2).replace('.',',') + ' %';
+const mmss = s => String(Math.floor(s/60)).padStart(2,'0') + ':' + String(Math.floor(s%60)).padStart(2,'0');
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const def = sym => DEFS.find(d => d.sym === sym);
+const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
+const lsSet = (k,v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} };
+const SITE = location.origin + location.pathname;
+const PEER_PREFIX = 'bourse-classe-v1-';
+
+/* ---------- état ---------- */
+let V = blankView();
+let teams = [];      // prof : équipes complètes (avec code) ; joueurs : version publique
+function blankView(){
+  return {status:'attente', t:0, nextNews:150, speed:1, news:[], manche:1, roundStart:0, results:[],
+    stocks: DEFS.map(d => ({sym:d.sym, price:d.price, open:d.price, hist:[d.price]}))};
+}
+function serialize(nh){
+  const prices = {};
+  for (const s of V.stocks) prices[s.sym] = {p:+s.price.toFixed(2), o:s.open, h:s.hist.slice(-nh)};
+  return {status:V.status, t:V.t, nextNews:V.nextNews, speed:V.speed, news:V.news.slice(0,30), prices, manche:V.manche, roundStart:V.roundStart, results:V.results};
+}
+function viewFrom(d){
+  const v = blankView();
+  if (!d) return v;
+  v.status = d.status || 'attente'; v.t = d.t || 0; v.nextNews = d.nextNews ?? 150; v.speed = d.speed || 1;
+  v.manche = d.manche || 1; v.roundStart = d.roundStart || 0; v.results = Array.isArray(d.results) ? d.results : [];
+  v.news = Array.isArray(d.news) ? d.news : [];
+  v.stocks = DEFS.map(df => {
+    const p = d.prices && d.prices[df.sym];
+    return p ? {sym:df.sym, price:p.p, open:p.o, hist:(p.h && p.h.length ? p.h.slice() : [p.p])} : {sym:df.sym, price:df.price, open:df.price, hist:[df.price]};
+  });
+  return v;
+}
+const priceOf = sym => (V.stocks.find(s => s.sym === sym) || {price:0}).price;
+const teamValue = tm => (tm.cash||0) + Object.entries(tm.hold||{}).reduce((a,[k,q]) => a + (q||0)*priceOf(k), 0);
+const teamWho = t => `${t.size||1} joueur${(t.size||1)>1?'s':''}`;
+const roundLeft = () => Math.max(0, ROUND - (V.t - V.roundStart));
+const STATUS_TXT = {attente:'Inscriptions', en_cours:'Marché ouvert', pause:'Pause', fin_manche:'Fin de manche', fini:'Partie terminée'};
+const newsSyms = n => n.syms || [n.sym];
+const newsTag = n => n.sym === 'MARCHÉ' ? (n.pos ? 'Tout le marché monte' : 'Le marché baisse') : `${n.sym} va ${n.pos ? 'monter' : 'baisser'}`;
+const newsSub = n => n.sym === 'MARCHÉ' ? 'Touche : ' + newsSyms(n).join(', ') : `${def(n.sym).name} · ${def(n.sym).sector}`;
+const newsKey = n => n ? n.t + n.sym : null;
+const indexVal = () => V.stocks.reduce((a,s) => a + s.price/s.open, 0) / V.stocks.length * 1000;
+
+/* ---------- graphiques ---------- */
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function fit(c){
+  const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.round(r.width*dpr), h = Math.round(r.height*dpr);
+  if (c.width !== w || c.height !== h){ c.width = w; c.height = h; }
+  const ctx = c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx, w:r.width, h:r.height};
+}
+function drawLine(ctx, data, x0, y0, w, h, lo, hi, color){
+  const n = data.length; if (n < 2) return;
+  const X = i => x0 + i/(n-1)*w, Y = v => y0 + h - (v-lo)/(hi-lo||1)*h;
+  ctx.beginPath(); data.forEach((v,i) => i ? ctx.lineTo(X(i),Y(v)) : ctx.moveTo(X(i),Y(v)));
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineTo(X(n-1), y0+h); ctx.lineTo(X(0), y0+h); ctx.closePath();
+  const g = ctx.createLinearGradient(0,y0,0,y0+h); g.addColorStop(0, color+'40'); g.addColorStop(1, color+'00');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.arc(X(n-1), Y(data[n-1]), 3.5, 0, 7); ctx.fillStyle = color; ctx.fill();
+}
+function drawSpark(c, s, pts){
+  const {ctx,w,h} = fit(c); ctx.clearRect(0,0,w,h);
+  const d = s.hist.slice(-pts), lo = Math.min(...d), hi = Math.max(...d), pad = (hi-lo)*.1 || 1;
+  drawLine(ctx, d, 0, 3, w, h-6, lo-pad, hi+pad, s.price >= s.open ? css('--up') : css('--down'));
+}
+function drawBig(s){
+  const c = $('bigChart'); const {ctx,w,h} = fit(c); ctx.clearRect(0,0,w,h);
+  const d = s.hist, left = 6, right = 62, top = 10, bottom = 22, cw = w-left-right, ch = h-top-bottom;
+  let lo = Math.min(...d, s.open), hi = Math.max(...d, s.open); const pad = (hi-lo)*.12 || 2; lo -= pad; hi += pad;
+  ctx.font = '11px "JetBrains Mono", monospace'; ctx.textBaseline = 'middle';
+  for (let i=0;i<=4;i++){
+    const v = lo + (hi-lo)*i/4, y = top + ch - ch*i/4;
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(left+cw,y); ctx.stroke();
+    ctx.fillStyle = css('--muted'); ctx.fillText(v.toFixed(2), left+cw+8, y);
+  }
+  const yo = top + ch - (s.open-lo)/(hi-lo)*ch;
+  ctx.setLineDash([4,4]); ctx.strokeStyle = css('--muted'); ctx.beginPath(); ctx.moveTo(left,yo); ctx.lineTo(left+cw,yo); ctx.stroke(); ctx.setLineDash([]);
+  const off = V.t + 1 - d.length;
+  for (const n of V.news.filter(n => newsSyms(n).includes(s.sym))){
+    const i = n.t - off; if (i < 0 || i >= d.length) continue;
+    const x = left + i/(d.length-1||1)*cw;
+    ctx.strokeStyle = n.pos ? css('--news') : css('--down'); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,top+ch); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = ctx.strokeStyle; ctx.textBaseline = 'top'; ctx.fillText('Annonce', Math.min(x+4, left+cw-60), top+2); ctx.textBaseline = 'middle';
+  }
+  drawLine(ctx, d, left, top, cw, ch, lo, hi, s.price >= s.open ? css('--up') : css('--down'));
+  ctx.fillStyle = css('--muted'); ctx.textBaseline = 'alphabetic';
+  ctx.fillText(d.length > 1 ? `il y a ${mmss(d.length-1)}` : 'départ', left, h-6);
+  ctx.textAlign = 'right'; ctx.fillText('maintenant', left+cw, h-6); ctx.textAlign = 'left';
+}
+
+/* =====================================================================
+   ÉCRAN DU PROF : fait tourner le marché et garde toutes les équipes
+   ===================================================================== */
+let peer = null, conns = new Set(), GAME = null, netOk = false, netErr = '';
+let engineTimer = null, lastNewsSym = null, selected = 'AAPL', lastNewsKey = null, resetArmed = false, wipeArmed = false;
+const boosts = {};
+
+function hostSave(){ try { localStorage.setItem('bdlc-host', JSON.stringify({code:GAME, v:serialize(MAXH), teams})); } catch(e){} }
+function hostLoad(){
+  try { const o = JSON.parse(localStorage.getItem('bdlc-host') || 'null'); if (o && o.code){ GAME = o.code; V = viewFrom(o.v); teams = Array.isArray(o.teams) ? o.teams : []; if (V.status === 'en_cours') V.status = 'pause'; } } catch(e){}
+  if (!GAME) GAME = String(10000 + Math.floor(Math.random()*90000));
+}
+
+function tick(){
+  if (V.status !== 'en_cours') return;
+  V.t++;
+  for (const s of V.stocks){
+    const d = def(s.sym), b = boosts[s.sym];
+    let r = gauss()*d.vol + (d.price - s.price)/d.price*0.0004;
+    if (b && b.n > 0){ r += b.per; b.n--; }
+    s.price = Math.max(1, s.price*(1+r));
+    s.hist.push(+s.price.toFixed(2));
+    if (s.hist.length > MAXH) s.hist.shift();
+  }
+  V.nextNews--;
+  if (V.nextNews <= 0) makeNews();
+  if (roundLeft() <= 0) endRound();
+  renderHost();
+}
+function startEngine(){ clearInterval(engineTimer); engineTimer = setInterval(tick, 1000/(V.speed||1)); }
+function endRound(){
+  const top = teams.map(tm => ({name:tm.name, who:teamWho(tm), v:Math.round(teamValue(tm))})).sort((a,b) => b.v-a.v).slice(0,3);
+  V.results = V.results.filter(r => r.manche !== V.manche).concat([{manche:V.manche, top}]);
+  V.status = V.manche >= MANCHES ? 'fini' : 'fin_manche';
+  hostSave(); broadcast();
+}
+const recentPays = [], recentTexts = [];
+function pickPays(){
+  const pool = PAYS.filter(p => !recentPays.includes(p));
+  const p = pool[Math.floor(Math.random()*pool.length)];
+  recentPays.push(p); if (recentPays.length > 12) recentPays.shift();
+  return p;
+}
+function pickText(list){
+  const pool = list.filter(t => !recentTexts.includes(t)), src = pool.length ? pool : list;
+  const t = src[Math.floor(Math.random()*src.length)];
+  recentTexts.push(t); if (recentTexts.length > 20) recentTexts.shift();
+  return t;
+}
+const fillPays = t => t.replace('{p}', pickPays()).replace('{p2}', pickPays());
+// le prix bouge petit à petit pendant 40 secondes : les équipes ont le temps de réagir
+const boost = (sym, impact) => { boosts[sym] = {n:40, per:Math.pow(1+impact, 1/40) - 1}; };
+function makeNews(){
+  let item;
+  if (Math.random() < 0.18){
+    const m = MARKET_NEWS[Math.floor(Math.random()*MARKET_NEWS.length)];
+    const syms = m.syms === 'ALL' ? DEFS.map(d => d.sym) : m.syms;
+    for (const s of syms) boost(s, m.pos ? rand(.04,.10) : -rand(.04,.08));
+    item = {t:V.t, sym:'MARCHÉ', syms, text:fillPays(pickText([m.text])), pos:m.pos};
+    lastNewsSym = null;
+  } else {
+    const pool = DEFS.filter(d => d.sym !== lastNewsSym);
+    const d = pool[Math.floor(Math.random()*pool.length)];
+    lastNewsSym = d.sym;
+    const positive = Math.random() < 0.72;
+    const text = fillPays(pickText(NEWS[d.sym][positive ? 'pos' : 'neg']));
+    boost(d.sym, positive ? rand(.10,.25) : -rand(.08,.16));
+    item = {t:V.t, sym:d.sym, syms:[d.sym], text, pos:positive};
+  }
+  V.news.unshift(item); V.news = V.news.slice(0, 30);
+  V.nextNews = Math.round(rand(120,180));
+  hostSave(); broadcast();
+}
+
+/* ----- réseau du prof : les appareils des élèves se connectent directement ----- */
+let peerTries = 0;
+function hostNet(){
+  if (typeof Peer === 'undefined'){ netErr = 'Le module réseau n\'a pas pu se charger. Vérifie internet puis recharge la page.'; renderHost(); return; }
+  try { peer && peer.destroy(); } catch(e){}
+  peer = new Peer(PEER_PREFIX + GAME, {debug:0});
+  peer.on('open', () => { netOk = true; netErr = ''; peerTries = 0; renderHost(); });
+  peer.on('connection', c => {
+    c.on('open', () => { conns.add(c); sendState(c); renderHost(); });
+    c.on('data', d => onPlayerMsg(c, d));
+    c.on('close', () => { conns.delete(c); renderHost(); });
+    c.on('error', () => { conns.delete(c); });
+  });
+  peer.on('disconnected', () => { netOk = false; renderHost(); setTimeout(() => { try { peer.reconnect(); } catch(e){} }, 1500); });
+  peer.on('error', e => {
+    netOk = false;
+    if (e && e.type === 'unavailable-id'){
+      // le code est encore réservé (page rechargée) : on réessaie, puis on change de code
+      peerTries++;
+      if (peerTries > 4){ GAME = String(10000 + Math.floor(Math.random()*90000)); peerTries = 0; hostSave(); }
+      setTimeout(hostNet, 3000);
+    } else if (e && (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed')){
+      netErr = 'Réseau coupé. Reconnexion…'; setTimeout(hostNet, 4000);
+    }
+    renderHost();
+  });
+}
+function publicTeams(){ return teams.map(t => ({id:t.id, name:t.name, size:t.size, cash:t.cash, hold:t.hold, orders:t.orders})); }
+function statePacket(){ return {type:'state', s:serialize(90), teams:publicTeams()}; }
+function sendState(c){ try { c.open && c.send(statePacket()); } catch(e){} }
+function broadcast(){ const p = statePacket(); for (const c of conns){ try { c.open && c.send(p); } catch(e){} } }
+function reply(c, reqId, ok, extra){ try { c.send(Object.assign({type:'reply', reqId, ok}, extra)); } catch(e){} }
+
+function onPlayerMsg(c, d){
+  if (!d || typeof d !== 'object' || typeof d.type !== 'string') return;
+  const id = d.reqId;
+  if (d.type === 'create'){
+    const name = String(d.name || '').trim().replace(/\s+/g,' ').slice(0,24);
+    const size = Math.min(3, Math.max(1, Math.floor(+d.size) || 1));
+    if (!name) return reply(c, id, false, {msg:'Écris le nom de ton équipe.'});
+    if (teams.some(t => t.name.toLowerCase() === name.toLowerCase())) return reply(c, id, false, {msg:'Ce nom est déjà pris. Si c\'est ton équipe, utilise « Mon équipe est déjà inscrite ».'});
+    if (teams.length >= 40) return reply(c, id, false, {msg:'Il y a déjà trop d\'équipes.'});
+    const t = {id:'t' + Math.random().toString(36).slice(2,9), name, size, code:String(1000 + Math.floor(Math.random()*9000)), cash:START_CASH, hold:{}, orders:[], created:Date.now()};
+    teams.push(t); hostSave(); renderHost(); broadcast();
+    return reply(c, id, true, {teamId:t.id, code:t.code});
+  }
+  if (d.type === 'join'){
+    const t = teams.find(x => x.id === d.teamId);
+    if (!t) return reply(c, id, false, {msg:'Cette équipe n\'existe plus.'});
+    if (String(d.code||'').trim() !== t.code) return reply(c, id, false, {msg:'Ce n\'est pas le bon code. Regarde sur l\'appareil où l\'équipe s\'est inscrite.'});
+    return reply(c, id, true, {teamId:t.id, code:t.code});
+  }
+  if (d.type === 'order'){
+    const t = teams.find(x => x.id === d.teamId);
+    if (!t || String(d.code||'') !== t.code) return reply(c, id, false, {msg:'Ton équipe n\'est pas reconnue. Rejoins-la de nouveau avec son code.', lost:true});
+    if (V.status !== 'en_cours') return reply(c, id, false, {msg:'Le marché n\'est pas ouvert.'});
+    const sym = String(d.sym), dir = d.dir === -1 ? -1 : 1, q = Math.floor(+d.q);
+    if (!def(sym)) return reply(c, id, false, {msg:'Action inconnue.'});
+    if (!(q > 0) || q > 1e7) return reply(c, id, false, {msg:'Entre une quantité de 1 ou plus.'});
+    const price = priceOf(sym), cost = q*price, have = t.hold[sym] || 0;
+    if (dir > 0){
+      if (cost > t.cash) return reply(c, id, false, {msg:`Pas assez d'argent. Vous pouvez acheter au maximum ${Math.floor(t.cash/price)} ${sym}.`});
+      t.cash -= cost; t.hold[sym] = have + q;
+    } else {
+      if (q > have) return reply(c, id, false, {msg:`Vous n'avez que ${have} ${sym}.`});
+      t.cash += cost; t.hold[sym] = have - q;
+    }
+    t.cash = +t.cash.toFixed(2);
+    t.orders = [{d:dir, q, s:sym, p:+price.toFixed(2), m:V.manche}].concat(t.orders||[]).slice(0,12);
+    hostSave(); broadcast(); renderHost();
+    return reply(c, id, true, {msg:`${dir>0?'Acheté':'Vendu'} : ${q} ${sym} à ${money(price)} (${money(cost)}).`});
+  }
+}
+
+/* ----- affichage du prof ----- */
+function buildHost(){
+  document.body.classList.add('host');
+  $('hostView').hidden = false;
+  $('siteUrl').textContent = SITE.replace(/^https?:\/\//,'');
+  $('cards').innerHTML = DEFS.map(d => `<button class="card" data-sym="${d.sym}" type="button">
+    <div class="row"><span class="sym">${d.sym}</span><span class="px num"></span></div>
+    <div class="row"><span class="sec">${esc(d.sector)}</span><span class="ch num"></span></div>
+    <canvas></canvas></button>`).join('');
+  $('cards').querySelectorAll('.card').forEach(b => b.onclick = () => { selected = b.dataset.sym; renderHost(); });
+  $('copyBtn').onclick = () => {
+    const b = $('copyBtn'), ok = () => { b.textContent = 'Lien copié'; setTimeout(() => b.textContent = 'Copier le lien', 2000); };
+    try { navigator.clipboard.writeText(SITE).then(ok, () => {}); } catch(e){}
+  };
+  $('startBtn').onclick = () => {
+    const st = V.status;
+    if (st === 'fini') return;
+    if (st === 'en_cours') V.status = 'pause';
+    else if (st === 'pause') V.status = 'en_cours';
+    else {
+      if (st === 'fin_manche'){ V.manche++; for (const k in boosts) delete boosts[k]; }
+      V.roundStart = V.t; V.nextNews = Math.round(rand(45,75)); V.status = 'en_cours';
+    }
+    hostSave(); broadcast(); renderHost();
+  };
+  $('speedBtn').onclick = () => { V.speed = V.speed === 1 ? 2 : V.speed === 2 ? 5 : 1; startEngine(); renderHost(); };
+  $('newsBtn').onclick = () => { if (V.status !== 'en_cours') return; makeNews(); renderHost(); };
+  $('fsBtn').onclick = () => { try { const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); p && p.catch(()=>{}); } catch(e){} };
+  $('resetBtn').onclick = e => {
+    const b = e.currentTarget;
+    if (!resetArmed){ resetArmed = true; b.textContent = 'Sûr ? Cliquez encore'; b.classList.add('on'); setTimeout(() => { resetArmed = false; b.textContent = 'Recommencer'; b.classList.remove('on'); }, 3000); return; }
+    resetArmed = false; b.textContent = 'Recommencer'; b.classList.remove('on');
+    V = blankView(); for (const k in boosts) delete boosts[k];
+    for (const t of teams){ t.cash = START_CASH; t.hold = {}; t.orders = []; }
+    startEngine(); hostSave(); broadcast(); renderHost();
+  };
+  $('wipeBtn').onclick = e => {
+    const b = e.currentTarget;
+    if (!wipeArmed){ wipeArmed = true; b.textContent = 'Sûr ? Toutes les équipes seront effacées'; setTimeout(() => { wipeArmed = false; b.textContent = 'Effacer toutes les équipes'; }, 3000); return; }
+    wipeArmed = false; b.textContent = 'Effacer toutes les équipes';
+    teams = []; hostSave(); broadcast(); renderHost();
+  };
+  $('board').onclick = e => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    if (b.dataset.armed){ teams = teams.filter(t => t.id !== b.dataset.del); hostSave(); broadcast(); renderHost(); }
+    else { b.dataset.armed = '1'; b.textContent = 'retirer ?'; b.style.color = 'var(--down)'; }
+  };
+  $('vicClose').onclick = () => { vicClosed = true; $('victory').hidden = true; cancelAnimationFrame(confettiRaf); };
+  window.addEventListener('resize', renderHost);
+}
+function startLabel(){
+  const st = V.status;
+  return st === 'en_cours' ? 'Pause' : st === 'pause' ? 'Reprendre' : st === 'fin_manche' ? `Manche ${V.manche+1}` : st === 'fini' ? 'Partie terminée' : 'Commencer';
+}
+function renderHost(){
+  if (ROLE !== 'host') return;
+  const st = V.status;
+  $('manche').textContent = `${Math.min(V.manche,MANCHES)} / ${MANCHES}`;
+  $('clock').textContent = st === 'attente' ? mmss(ROUND) : mmss(roundLeft());
+  $('newsCount').textContent = V.news.length;
+  const iv = indexVal(), ic = (iv/1000-1)*100;
+  $('idx').innerHTML = `${iv.toFixed(2)} <span class="${ic>=0?'up':'down'}">${pct(ic)}</span>`;
+  const pill = $('hPill');
+  pill.textContent = STATUS_TXT[st] || st;
+  pill.className = 'pill ' + (st === 'en_cours' ? 'run' : st === 'pause' || st === 'fini' ? 'pause' : 'wait');
+  $('startBtn').textContent = startLabel();
+  $('startBtn').className = st === 'en_cours' ? '' : 'go';
+  $('startBtn').disabled = st === 'fini';
+  $('newsBtn').disabled = st !== 'en_cours';
+  $('speedBtn').textContent = `Vitesse ×${V.speed}`; $('speedBtn').classList.toggle('on', V.speed > 1);
+  $('gameCode').textContent = GAME;
+  $('netState').innerHTML = netErr ? `<span class="down">${esc(netErr)}</span>` : netOk ? `<span class="up">Partie en ligne</span> · ${conns.size} appareil${conns.size>1?'s':''} connecté${conns.size>1?'s':''}` : 'Connexion au réseau…';
+
+  const sorted = V.stocks.map(s => ({sym:s.sym, ch:(s.price/s.open-1)*100})).sort((a,b) => b.ch-a.ch);
+  const mv = arr => arr.map(x => `<li><b>${x.sym}</b><span class="num ${x.ch>=0?'up':'down'}">${pct(x.ch)}</span></li>`).join('');
+  const mh = `<div><h3>Hausses</h3><ul>${mv(sorted.slice(0,3))}</ul></div><div><h3>Baisses</h3><ul>${mv(sorted.slice(-3).reverse())}</ul></div>`;
+  if ($('movers').dataset.h !== mh){ $('movers').dataset.h = mh; $('movers').innerHTML = mh; }
+
+  let tape = `<span class="tape-item"><b>INDICE CLASSE</b>${iv.toFixed(2)} <span class="${ic>=0?'up':'down'}">${ic>=0?'▲':'▼'} ${pct(ic)}</span></span>`;
+  for (const s of V.stocks){
+    const ch = (s.price/s.open-1)*100, cls = ch>=0?'up':'down';
+    tape += `<span class="tape-item"><b>${s.sym}</b>${s.price.toFixed(2)} <span class="${cls}">${ch>=0?'▲':'▼'} ${pct(ch)}</span></span>`;
+    const card = document.querySelector(`.card[data-sym="${s.sym}"]`);
+    card.classList.toggle('sel', s.sym === selected);
+    card.querySelector('.px').textContent = s.price.toFixed(2) + ' $';
+    const chEl = card.querySelector('.ch'); chEl.textContent = pct(ch); chEl.className = 'ch num ' + cls;
+    drawSpark(card.querySelector('canvas'), s, 120);
+  }
+  $('tape').innerHTML = tape + tape;
+
+  const n0 = V.news[0], k = newsKey(n0);
+  if (k !== lastNewsKey){
+    const first = lastNewsKey === null; lastNewsKey = k;
+    if (n0 && !first){
+      selected = newsSyms(n0)[0];
+      for (const sy of newsSyms(n0)){
+        const card = document.querySelector(`.card[data-sym="${sy}"]`);
+        if (card){ card.classList.remove('hot'); void card.offsetWidth; card.classList.add('hot'); }
+      }
+      const f = $('flash'); f.classList.remove('pop'); void f.offsetWidth; f.classList.add('pop');
+    }
+  }
+
+  const s = V.stocks.find(x => x.sym === selected), d = def(selected), ch = (s.price/s.open-1)*100;
+  $('bigSym').textContent = d.sym; $('bigName').textContent = `${d.name} · ${d.sector}`;
+  $('bigPx').textContent = money(s.price);
+  $('bigCh').textContent = pct(ch); $('bigCh').className = 'ch num ' + (ch>=0?'up':'down');
+  drawBig(s);
+
+  renderBoard(); renderFlash(); renderVictory();
+
+  const nl = $('newsList');
+  const nh = V.news.length ? V.news.map(n => `<li class="${n.pos?'':'neg'}"><time>${mmss(n.t)}</time><b>${esc(n.sym)}</b> ${esc(n.text)}</li>`).join('') : '<li class="empty" style="border:0;padding:0">Aucune annonce pour l\'instant.</li>';
+  if (nl.dataset.h !== nh){ nl.dataset.h = nh; nl.innerHTML = nh; }
+}
+function renderBoard(){
+  const ranked = teams.map(tm => ({tm, v:teamValue(tm)})).sort((a,b) => b.v-a.v);
+  const html = !ranked.length ? '<tr><td class="empty">Aucune équipe pour l\'instant. Donnez le site et le code à la classe.</td></tr>' : ranked.map((r,k) => {
+    const g = (r.v/START_CASH-1)*100;
+    return `<tr><td class="rk">${k+1}</td><td class="tm">${esc(r.tm.name)}<button type="button" class="del" data-del="${esc(r.tm.id)}" aria-label="Retirer ${esc(r.tm.name)}">×</button>
+      <span class="mb">${esc(teamWho(r.tm))} · code ${esc(r.tm.code)}</span></td>
+      <td class="val num">${money0(r.v)}</td><td class="pc num ${g>=0?'up':'down'}">${pct(g)}</td></tr>`;
+  }).join('');
+  const b = $('board');
+  if (b.dataset.h !== html && !b.querySelector('[data-armed]')){ b.dataset.h = html; b.innerHTML = html; }
+}
+function renderFlash(){
+  const f = $('flash'), st = V.status, n = V.news[0];
+  let tag, txt, right, cls = '';
+  if (st === 'attente'){
+    cls = 'wait'; tag = 'Inscriptions';
+    txt = `Allez sur ${esc(SITE.replace(/^https?:\/\//,''))} et entrez le code <span class="num">${esc(GAME)}</span><small>${teams.length} équipe${teams.length>1?'s':''} inscrite${teams.length>1?'s':''} · 1 à 3 joueurs par équipe · ${MANCHES} manches de ${ROUND/60} min</small>`;
+    right = '<button class="go" id="bigStart" type="button">Commencer la manche 1</button>';
+  } else if (st === 'fin_manche' || st === 'fini'){
+    cls = 'wait'; const r = V.results.find(x => x.manche === V.manche), top = r ? r.top : [];
+    tag = st === 'fini' ? 'Partie terminée' : `Fin de la manche ${V.manche}`;
+    txt = (top.length ? `${st === 'fini' ? 'Grands gagnants' : 'En tête'} : ${esc(top[0].name)} avec ${money0(top[0].v)}` : 'Aucune équipe inscrite.')
+      + `<small>${top.slice(1).map((x,i) => `${i+2}<sup>e</sup> ${esc(x.name)} · ${money0(x.v)}`).join('  ·  ')}${st === 'fini' ? '' : ' — l\'argent et les actions restent pour la manche suivante.'}</small>`;
+    right = st === 'fini' ? 'Bravo à tous !' : `<button class="go" id="bigStart" type="button">Manche ${V.manche+1}</button>`;
+  } else {
+    if (n){ cls = n.pos ? '' : 'neg'; tag = newsTag(n); txt = `${esc(n.text)}<small>${esc(newsSub(n))}</small>`; }
+    else { tag = 'Marché ouvert'; txt = 'C\'est parti ! Chaque équipe a 100 000 $. Une annonce arrive toutes les 2 à 3 minutes.<small>Achetez et vendez sur la page de votre équipe.</small>'; }
+    right = st === 'pause' ? 'Marché en pause<b>⏸</b>' : `Prochaine annonce<b>${mmss(Math.max(0,V.nextNews))}</b>`;
+  }
+  f.className = 'flash ' + cls + (f.classList.contains('pop') ? ' pop' : '');
+  $('flashTag').textContent = tag;
+  if ($('flashTxt').dataset.h !== txt){ $('flashTxt').dataset.h = txt; $('flashTxt').innerHTML = txt; }
+  const r = $('flashRight');
+  if (r.dataset.h !== right){ r.dataset.h = right; r.innerHTML = right; const bs = $('bigStart'); if (bs) bs.onclick = () => $('startBtn').click(); }
+}
+
+/* ----- podium ----- */
+let vicShown = false, vicClosed = false, confettiRaf = 0;
+function renderVictory(){
+  const box = $('victory');
+  if (V.status !== 'fini'){ vicShown = false; vicClosed = false; box.hidden = true; cancelAnimationFrame(confettiRaf); return; }
+  if (vicShown || vicClosed) return;
+  const r = V.results.find(x => x.manche === MANCHES) || V.results[V.results.length-1];
+  const top = r ? r.top : [], w = top[0];
+  vicShown = true;
+  $('vicName').textContent = w ? w.name : 'Aucune équipe';
+  $('vicSub').textContent = w ? `${w.who ? w.who + ' · ' : ''}${money0(w.v)} (${pct((w.v/START_CASH-1)*100)}) après ${MANCHES} manches` : '';
+  const col = (i, cls) => {
+    const t = top[i];
+    return `<div class="pod ${cls}${t ? '' : ' empty'}"><div class="who">${t ? `<b>${esc(t.name)}</b><span>${esc(t.who || '')}</span><span class="num">${money0(t.v)}</span>` : '<span>—</span>'}</div><div class="block">${i+1}</div></div>`;
+  };
+  $('podium').innerHTML = col(1,'p2') + col(0,'p1') + col(2,'p3');
+  box.hidden = false;
+  startConfetti();
+}
+function startConfetti(){
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = $('confetti'), colors = [css('--news'), css('--up'), css('--down'), '#6db3ff', '#ffffff'];
+  const bits = Array.from({length:160}, () => ({x:Math.random(), y:-Math.random()*1.2, s:6+Math.random()*8, v:.002+Math.random()*.004, r:Math.random()*6, vr:(Math.random()-.5)*.2, col:colors[Math.floor(Math.random()*colors.length)]}));
+  const t0 = performance.now();
+  const frame = now => {
+    const {ctx,w,h} = fit(c); ctx.clearRect(0,0,w,h);
+    for (const b of bits){
+      b.y += b.v; b.r += b.vr; if (b.y > 1.05 && now - t0 < 9000){ b.y = -0.05; b.x = Math.random(); }
+      ctx.save(); ctx.translate(b.x*w, b.y*h); ctx.rotate(b.r); ctx.fillStyle = b.col; ctx.fillRect(-b.s/2, -b.s/2, b.s, b.s*.6); ctx.restore();
+    }
+    if (now - t0 < 14000) confettiRaf = requestAnimationFrame(frame); else ctx.clearRect(0,0,w,h);
+  };
+  cancelAnimationFrame(confettiRaf); confettiRaf = requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+   PAGE DES ÉQUIPES : se connecte à l'écran du prof avec le code
+   ===================================================================== */
+let conn = null, cGame = lsGet('bdlc-game'), connected = false, everConnected = false, cErr = '', gotState = false;
+let myTeam = null; // {id, code}
+let reqN = 0; const pending = {};
+let busy = false, plMsg = '', plMsgOk = true, plBuilt = '', plLastNews = null, ntSize = 2, retryTimer = null;
+const loadMyTeam = () => { try { myTeam = JSON.parse(lsGet('bdlc-team-' + cGame) || 'null'); } catch(e){ myTeam = null; } };
+const saveMyTeam = t => { myTeam = t; lsSet('bdlc-team-' + cGame, t ? JSON.stringify(t) : null); };
+const myPublic = () => myTeam ? teams.find(t => t.id === myTeam.id) : null;
+
+function playerConnect(){
+  clearTimeout(retryTimer);
+  if (!cGame){ renderPlayer(); return; }
+  if (typeof Peer === 'undefined'){ cErr = 'Le module réseau n\'a pas pu se charger. Vérifie internet puis recharge la page.'; renderPlayer(); return; }
+  loadMyTeam();
+  if (!peer || peer.destroyed){
+    peer = new Peer({debug:0});
+    peer.on('open', () => openConn());
+    peer.on('disconnected', () => { setTimeout(() => { try { peer.reconnect(); } catch(e){} }, 1500); });
+    peer.on('error', e => {
+      if (e && e.type === 'peer-unavailable'){
+        connected = false;
+        cErr = everConnected ? 'L\'écran du prof ne répond plus. Reconnexion…' : `Aucune partie avec le code ${cGame}. Vérifie le code au tableau.`;
+        renderPlayer();
+        if (everConnected) retryTimer = setTimeout(openConn, 3000);
+      } else if (e && (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error')){
+        cErr = 'Problème de réseau. Reconnexion…'; renderPlayer();
+        retryTimer = setTimeout(() => { try { peer.destroy(); } catch(_){} peer = null; playerConnect(); }, 4000);
+      }
+    });
+  } else if (peer.open) openConn();
+  renderPlayer();
+}
+function openConn(){
+  clearTimeout(retryTimer);
+  try { conn && conn.close(); } catch(e){}
+  conn = peer.connect(PEER_PREFIX + cGame, {reliable:true});
+  const thisConn = conn;
+  const timeout = setTimeout(() => { if (thisConn === conn && !connected){ cErr = everConnected ? 'Reconnexion…' : `La partie ${cGame} ne répond pas. Vérifie le code, ou demande au prof si l'écran est bien ouvert.`; renderPlayer(); retryTimer = setTimeout(openConn, 3000); } }, 9000);
+  conn.on('open', () => { clearTimeout(timeout); connected = true; everConnected = true; cErr = ''; renderPlayer(); });
+  conn.on('data', d => onHostMsg(d));
+  conn.on('close', () => { if (thisConn !== conn) return; connected = false; cErr = 'Connexion perdue. Reconnexion…'; renderPlayer(); retryTimer = setTimeout(openConn, 2500); });
+  conn.on('error', () => {});
+}
+function onHostMsg(d){
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'state'){
+    V = viewFrom(d.s); teams = Array.isArray(d.teams) ? d.teams : []; gotState = true;
+    if (myTeam && !teams.some(t => t.id === myTeam.id)){ saveMyTeam(null); plBuilt = ''; }
+    renderPlayer();
+  } else if (d.type === 'reply'){
+    const p = pending[d.reqId]; if (!p) return;
+    delete pending[d.reqId];
+    d.ok ? p.res(d) : p.rej(d);
+  }
+}
+function request(m){
+  return new Promise((res, rej) => {
+    if (!conn || !connected) return rej({msg:'Pas connecté à la partie. Attends une seconde et réessaie.'});
+    const id = ++reqN; pending[id] = {res, rej};
+    try { conn.send(Object.assign({}, m, {reqId:id})); } catch(e){ delete pending[id]; return rej({msg:'Envoi impossible. Réessaie.'}); }
+    setTimeout(() => { if (pending[id]){ delete pending[id]; rej({msg:'La partie ne répond pas. Réessaie.'}); } }, 8000);
+  });
+}
+
+function renderPlayer(){
+  if (ROLE !== 'player') return;
+  const body = $('plBody');
+  if (!cGame) return renderGameCode(body);
+  if (!connected || !gotState){
+    plBuilt = '';
+    $('who').innerHTML = `<span class="muted num">Partie ${esc(cGame)}</span><button type="button" id="chgGame">Changer de code</button>`;
+    $('chgGame').onclick = changeGame;
+    body.innerHTML = `<section class="panel"><p class="note">${cErr ? esc(cErr) : `Connexion à la partie ${esc(cGame)}…`}</p></section>`;
+    return;
+  }
+  const tm = myPublic();
+  if (!tm) return renderSignup(body);
+  renderTeam(body, tm);
+}
+function changeGame(){ cGame = null; lsSet('bdlc-game', null); connected = false; everConnected = false; gotState = false; cErr = ''; try { conn && conn.close(); } catch(e){} conn = null; plBuilt = ''; renderPlayer(); }
+
+function renderGameCode(body){
+  $('who').innerHTML = '';
+  if (plBuilt === 'code') return;
+  plBuilt = 'code';
+  body.innerHTML = `
+  <section class="panel">
+    <h2>Rejoindre la partie</h2>
+    <div class="form">
+      <label for="gcIn">Code de la partie (écrit au tableau)</label>
+      <input id="gcIn" class="bigcode" inputmode="numeric" maxlength="5" placeholder="12345" autocomplete="off">
+      <button type="button" class="go" id="gcBtn">Entrer</button>
+      <div class="msg" id="gcMsg"></div>
+    </div>
+  </section>
+  <p class="note">Simulation pour la classe : vraies entreprises, mais les prix et les annonces sont inventés pour le jeu. Aucun compte n'est nécessaire.</p>`;
+  const go = () => {
+    const v = $('gcIn').value.replace(/\D/g,'');
+    if (v.length !== 5){ $('gcMsg').innerHTML = '<span class="down">Le code a 5 chiffres.</span>'; return; }
+    cGame = v; lsSet('bdlc-game', v); cErr = ''; plBuilt = ''; playerConnect();
+  };
+  $('gcBtn').onclick = go;
+  $('gcIn').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+function renderSignup(body){
+  const whoH = `<span class="muted num">Partie ${esc(cGame)}</span><button type="button" id="chgGame">Changer de code</button>`;
+  if ($('who').dataset.h !== whoH){ $('who').dataset.h = whoH; $('who').innerHTML = whoH; $('chgGame').onclick = changeGame; }
+  if (plBuilt === 'signup'){ fillJoinList(); return; }
+  plBuilt = 'signup';
+  body.innerHTML = `
+  <section class="panel">
+    <h2>Inscrire une nouvelle équipe</h2>
+    <div class="form">
+      <label for="ntName">Nom de l'équipe</label>
+      <input id="ntName" maxlength="24" placeholder="ex. Les Loups de Wall Street" autocomplete="off">
+      <span class="muted" style="font-size:12px">Nombre de joueurs (maximum 3)</span>
+      <div class="seg" id="ntSize">${[1,2,3].map(n => `<button type="button" data-n="${n}">${n} joueur${n>1?'s':''}</button>`).join('')}</div>
+      <button type="button" class="go" id="ntBtn">Inscrire l'équipe</button>
+      <div class="msg" id="ntMsg"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <h2>Mon équipe est déjà inscrite</h2>
+    <p class="note" style="margin-bottom:10px">Pour jouer sur un autre appareil (téléphone, ordi…), choisis ton équipe et entre son code à 4 chiffres.</p>
+    <div class="form">
+      <label for="jTeam">Équipe</label><select id="jTeam"></select>
+      <label for="jCode">Code de l'équipe</label><input id="jCode" inputmode="numeric" maxlength="4" placeholder="ex. 4821" autocomplete="off">
+      <button type="button" id="jBtn">Rejoindre mon équipe</button>
+      <div class="msg" id="jMsg"></div>
+    </div>
+  </section>`;
+  const paintSize = () => $('ntSize').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.n === ntSize));
+  $('ntSize').querySelectorAll('button').forEach(b => b.onclick = () => { ntSize = +b.dataset.n; paintSize(); });
+  paintSize();
+  $('ntName').onkeydown = e => { if (e.key === 'Enter') $('ntBtn').click(); };
+  $('ntBtn').onclick = async () => {
+    if (busy) return;
+    const name = $('ntName').value.trim(), msg = $('ntMsg');
+    if (!name){ msg.innerHTML = '<span class="down">Écris le nom de ton équipe.</span>'; $('ntName').focus(); return; }
+    busy = true; $('ntBtn').disabled = true; msg.textContent = 'Inscription…';
+    try { const r = await request({type:'create', name, size:ntSize}); saveMyTeam({id:r.teamId, code:r.code}); plBuilt = ''; }
+    catch(err){ msg.innerHTML = `<span class="down">${esc(err.msg || 'L\'inscription n\'a pas marché. Réessaie.')}</span>`; }
+    busy = false; const b = $('ntBtn'); if (b) b.disabled = false;
+    renderPlayer();
+  };
+  $('jBtn').onclick = async () => {
+    const id = $('jTeam').value, code = $('jCode').value.trim(), msg = $('jMsg');
+    if (!id){ msg.innerHTML = '<span class="down">Choisis ton équipe dans la liste.</span>'; return; }
+    try { const r = await request({type:'join', teamId:id, code}); saveMyTeam({id:r.teamId, code:r.code}); plBuilt = ''; renderPlayer(); }
+    catch(err){ msg.innerHTML = `<span class="down">${esc(err.msg || 'Impossible de rejoindre. Réessaie.')}</span>`; }
+  };
+  fillJoinList();
+}
+function fillJoinList(){
+  const sel = $('jTeam'); if (!sel) return;
+  const html = teams.length
+    ? '<option value="">— Choisis ton équipe —</option>' + teams.slice().sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')
+    : '<option value="">Aucune équipe inscrite pour l\'instant</option>';
+  if (sel.dataset.h === html) return;
+  const prev = sel.value; sel.dataset.h = html; sel.innerHTML = html; if (prev) sel.value = prev;
+}
+
+function renderTeam(body, tm){
+  const st = V.status, open = st === 'en_cours';
+  $('who').dataset.h = '';
+  $('who').innerHTML = `<span class="pill ${open?'run':st==='pause'||st==='fini'?'pause':'wait'}">${st==='attente'?'Pas commencé':esc(STATUS_TXT[st]||st)}</span>`
+    + `<span class="muted num">Manche ${Math.min(V.manche,MANCHES)}/${MANCHES} · ${mmss(st==='attente'?ROUND:roundLeft())}</span><button type="button" id="leaveBtn">Changer d'équipe</button>`;
+  $('leaveBtn').onclick = () => { saveMyTeam(null); plBuilt = ''; renderPlayer(); };
+
+  if (plBuilt !== 'team:' + tm.id){
+    plBuilt = 'team:' + tm.id;
+    body.innerHTML = `
+      <div class="banner" id="pBanner"><div class="tag" id="pTag"></div><p id="pTxt"></p></div>
+      <section class="panel">
+        <h2 id="pTeamName"></h2>
+        <p class="code" id="pCode"></p>
+        <div class="stats">
+          <div class="stat"><div class="k">Argent</div><div class="v num" id="pCash"></div></div>
+          <div class="stat"><div class="k">Valeur totale</div><div class="v num" id="pVal"></div></div>
+          <div class="stat"><div class="k">Gain</div><div class="v num" id="pGain"></div></div>
+          <div class="stat"><div class="k">Classement</div><div class="v num" id="pRank"></div></div>
+        </div>
+        <div class="hold" id="pHold"></div>
+      </section>
+      <section class="panel">
+        <h2>Actions</h2>
+        <div class="msg" id="pMsg"></div>
+        <div class="slist">${DEFS.map(d => `
+          <div class="srow" data-sym="${d.sym}">
+            <div><div class="row"><span class="sym">${d.sym}</span><span class="num px"></span></div>
+              <div class="row"><span class="sec">${esc(d.name)}</span><span class="num ch"></span></div></div>
+            <canvas></canvas>
+            <div class="act"><input type="number" min="1" value="50" id="q-${d.sym}" aria-label="Quantité de ${d.sym}">
+              <button type="button" class="buy" data-buy="${d.sym}">Acheter</button>
+              <button type="button" class="sell" data-sell="${d.sym}">Vendre</button></div>
+          </div>`).join('')}</div>
+      </section>
+      <section class="panel">
+        <h2>Historique des ordres</h2>
+        <ul class="orders" id="pOrders"></ul>
+      </section>
+      <p class="note">Simulation pour la classe : vraies entreprises, mais les prix et les annonces sont inventés pour le jeu.</p>`;
+    body.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => trade(b.dataset.buy, 1));
+    body.querySelectorAll('[data-sell]').forEach(b => b.onclick = () => trade(b.dataset.sell, -1));
+  }
+
+  const n = V.news[0], ban = $('pBanner');
+  if (st === 'attente'){ ban.className = 'banner wait'; $('pTag').textContent = 'En attente'; $('pTxt').textContent = `Le prof n'a pas encore cliqué sur Commencer. ${MANCHES} manches de ${ROUND/60} minutes. Préparez votre stratégie !`; }
+  else if (st === 'fin_manche' || st === 'fini'){
+    const r = V.results.find(x => x.manche === V.manche), top = r ? r.top : [];
+    ban.className = 'banner wait'; $('pTag').textContent = st === 'fini' ? 'Partie terminée' : `Fin de la manche ${V.manche}`;
+    $('pTxt').textContent = (top.length ? `En tête : ${top[0].name} (${money0(top[0].v)}). ` : '') + (st === 'fini' ? 'Bravo à tous !' : 'Vous gardez votre argent et vos actions pour la manche suivante.');
+  }
+  else if (n){ ban.className = 'banner' + (n.pos ? '' : ' neg'); $('pTag').textContent = newsTag(n) + ` · prochaine annonce dans ${mmss(Math.max(0,V.nextNews))}`; $('pTxt').textContent = n.text; }
+  else { ban.className = 'banner'; $('pTag').textContent = `Prochaine annonce dans ${mmss(Math.max(0,V.nextNews))}`; $('pTxt').textContent = 'Le marché est ouvert. Regardez bien les annonces !'; }
+  if (n && newsKey(n) !== plLastNews){ const first = plLastNews === null; plLastNews = newsKey(n); if (!first) document.querySelectorAll('.srow').forEach(r => r.classList.toggle('hot', newsSyms(n).includes(r.dataset.sym))); }
+
+  const val = teamValue(tm), g = (val/START_CASH-1)*100;
+  const rank = teams.map(t => teamValue(t)).sort((a,b) => b-a).indexOf(val) + 1;
+  $('pTeamName').textContent = `${tm.name} · ${teamWho(tm)}`;
+  $('pCode').innerHTML = `Code de l'équipe : <b class="num">${esc(myTeam.code)}</b> <span class="muted">— vos coéquipiers l'entrent pour jouer sur leur propre appareil.</span>`;
+  $('pCash').textContent = money(tm.cash);
+  $('pVal').textContent = money0(val);
+  $('pGain').textContent = pct(g); $('pGain').className = 'v num ' + (g>=0?'up':'down');
+  $('pRank').textContent = `${rank} / ${teams.length}`;
+  const items = Object.entries(tm.hold||{}).filter(([,q]) => q > 0).map(([k,q]) => `<span><b>${esc(k)}</b> × ${q} · ${money0(q*priceOf(k))}</span>`).join('');
+  $('pHold').innerHTML = items || '<span class="muted" style="border:0;background:none;padding:0">Aucune action pour l\'instant.</span>';
+  const pm = $('pMsg'); pm.innerHTML = plMsg ? `<span class="${plMsgOk?'up':'down'}">${esc(plMsg)}</span>` : (open ? '' : '<span class="muted">Les achats et ventes ouvrent quand le prof clique sur Commencer.</span>');
+  const ords = (tm.orders||[]).map(o => `<li><span><b class="${o.d>0?'up':'down'}">${o.d>0?'Achat':'Vente'}</b> ${o.q} ${esc(o.s)}</span><span class="num">${money(o.p)} · manche ${o.m}</span></li>`).join('');
+  const oh = ords || '<li class="empty" style="border:0">Aucun ordre pour l\'instant.</li>';
+  if ($('pOrders').dataset.h !== oh){ $('pOrders').dataset.h = oh; $('pOrders').innerHTML = oh; }
+
+  for (const s of V.stocks){
+    const row = document.querySelector(`.srow[data-sym="${s.sym}"]`); if (!row) continue;
+    const ch = (s.price/s.open-1)*100;
+    row.querySelector('.px').textContent = s.price.toFixed(2) + ' $';
+    const c = row.querySelector('.ch'); c.textContent = pct(ch); c.className = 'num ch ' + (ch>=0?'up':'down');
+    drawSpark(row.querySelector('canvas'), s, 80);
+    row.querySelectorAll('button').forEach(b => b.disabled = !open || busy);
+  }
+}
+async function trade(sym, dir){
+  if (!myTeam || busy) return;
+  const q = Math.floor(+$('q-'+sym).value);
+  if (!(q > 0)){ plMsg = 'Entre une quantité de 1 ou plus.'; plMsgOk = false; return renderPlayer(); }
+  busy = true; renderPlayer();
+  try { const r = await request({type:'order', teamId:myTeam.id, code:myTeam.code, sym, dir, q}); plMsg = r.msg; plMsgOk = true; }
+  catch(err){ plMsg = err.msg || 'L\'ordre n\'a pas marché. Réessaie.'; plMsgOk = false; if (err.lost){ saveMyTeam(null); plBuilt = ''; } }
+  busy = false; renderPlayer();
+}
+
+/* ================= démarrage ================= */
+if (ROLE === 'host'){
+  hostLoad(); buildHost(); renderHost(); startEngine(); hostNet();
+  setInterval(() => { broadcast(); if (V.status !== 'en_cours') renderHost(); }, 1000);
+  setInterval(hostSave, 3000);
+  window.addEventListener('beforeunload', hostSave);
+} else {
+  $('playerView').hidden = false;
+  renderPlayer(); playerConnect();
+}
+})();
+</script>
+</body>
+</html>
